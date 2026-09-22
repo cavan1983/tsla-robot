@@ -1,0 +1,29 @@
+
+name: TSLA Robot 7/24
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-robot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install yfinance tensorflow requests pytz scikit-learn pandas numpy
+      - name: Run Robot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: python robot_github_7-24.py
+      - name: Save brains
+        uses: actions/upload-artifact@v3
+        with:
+          name: brains-and-logs
+          path: data/
