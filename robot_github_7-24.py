@@ -290,20 +290,58 @@ def get_overall_stats():
         return f"📊 Stats: {e}",0,0,0
 
 def evaluate_past_predictions():
-    # Keçmiş proqnozları yoxla
     try:
         if not os.path.exists(PREDICTION_LOG):
-            return "📊 İlk dəfə işləyir"
+            return "📊 İlk dəfə işləyir - beyin öyrənir"
         df=pd.read_csv(PREDICTION_LOG)
         if df.empty: return "📊 Log boşdur"
-        # Sadə yoxlama
-        unchecked = df[df['Checked']==False] if 'Checked' in df.columns else df
-        if unchecked.empty:
-            return get_overall_stats()[0]
-        # Qiymət yoxlaması (sadələşdirilmiş - GitHub-da Drive yoxdur)
+        if 'Checked' not in df.columns:
+            df['Checked']=False
+        if 'Correct' not in df.columns:
+            df['Correct']=False
+        
+        now = datetime.now(BAKU_TZ)
+        updated = False
+        for idx, row in df.iterrows():
+            if row.get('Checked', False): continue
+            try:
+                target_str = str(row.get('TargetDate',''))
+                target_time = datetime.strptime(target_str, "%Y-%m-%d %H:%M")
+                target_time = BAKU_TZ.localize(target_time)
+                if now < target_time: continue  # hələ vaxtı çatmayıb
+                # Qiyməti yoxla
+                ticker = row.get('Ticker','TSLA')
+                price_at = float(row.get('PriceAtPred',0))
+                horizon = row.get('Horizon','1g')
+                if price_at==0: continue
+                # İndiki qiymət
+                curr_df = yf.download(ticker, period="5d", interval="1d", auto_adjust=True, progress=False)
+                curr_df = clean_df(curr_df)
+                if curr_df.empty: continue
+                curr_price = float(curr_df['Close'].iloc[-1])
+                change = (curr_price - price_at)/price_at
+                decision = str(row.get('Decision',''))
+                # Düzgün olubmu?
+                correct = False
+                if decision=="AL" and change>0.01: correct=True
+                elif decision=="SAT" and change<-0.01: correct=True
+                elif decision=="GÖZLƏ" and abs(change)<=0.02: correct=True
+                df.at[idx, 'Checked']=True
+                df.at[idx, 'Correct']=correct
+                df.at[idx, 'PriceAtCheck']=curr_price
+                df.at[idx, 'ActualChange']=change
+                updated=True
+            except Exception as e:
+                continue
+        if updated:
+            df.to_csv(PREDICTION_LOG, index=False)
         return get_overall_stats()[0]
     except Exception as e:
-        return f"📊 Yoxlama: {e}"
+        import traceback
+        print(f"evaluate xətası: {e}")
+        traceback.print_exc()
+        return get_overall_stats()[0]
+
 
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
