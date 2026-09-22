@@ -11,10 +11,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
+      - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install yfinance requests pytz scikit-learn pandas numpy tensorflow==2.15.0
+          pip install --upgrade pip
+          pip install yfinance requests pytz pandas numpy
       - name: Run Robot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
