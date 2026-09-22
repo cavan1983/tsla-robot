@@ -330,7 +330,7 @@ def format_report(all_results, eval_msg):
     lines.append("─"*20)
     for ticker in sorted(set([r[0] for r in all_results])):
         ticker_results=[r for r in all_results if r[0]==ticker]
-        last_price=ticker_results[0][3].get('Close',0) if ticker_results else 0
+        last_price=ticker_results[0][5].get('Close',0) if ticker_results and isinstance(ticker_results[0][5], dict) else 0
         lines.append(f"📈 <b>{ticker} ${last_price:.2f}</b>")
         # Finnhub news
         try:
@@ -344,8 +344,11 @@ def format_report(all_results, eval_msg):
             brain_file=f"{DATA_PATH}/brain_{ticker}_{hk}.keras"
             learned="🧠" if os.path.exists(brain_file) else "📚"
             lines.append(f"{icon} {cfg['label']}: <b>{dec}</b> {conf:.0f}% {learned}")
-            # SAT/AL ehtimalları
-            lines.append(f"   └ AL:{probs[2]*100:.0f}% GÖZLƏ:{probs[1]*100:.0f}% SAT:{probs[0]*100:.0f}%")
+            # SAT/AL ehtimalları - probs numpy ola bilər
+            try:
+                lines.append(f"   └ AL:{float(probs[2])*100:.0f}% GÖZLƏ:{float(probs[1])*100:.0f}% SAT:{float(probs[0])*100:.0f}%")
+            except:
+                lines.append(f"   └ {dec} {conf:.0f}%")
         lines.append("")
     lines.append("─"*20)
     lines.append(f"🕐 Bakı {datetime.now(BAKU_TZ).strftime('%H:%M')} | NY {(datetime.now(BAKU_TZ)-timedelta(hours=8)).strftime('%H:%M')}")
