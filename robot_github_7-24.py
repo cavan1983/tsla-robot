@@ -126,12 +126,18 @@ def get_finnhub_data(ticker):
 
 def get_data(ticker, horizon_key):
     cfg=HORIZONS[horizon_key]
-    try:
-        df=yf.download(ticker, period=cfg["period"], interval=cfg["interval"], auto_adjust=True, progress=False)
-        df=clean_df(df)
-        if df.empty or len(df)<30: return None
-        return df
-    except: return None
+    for attempt in range(3):
+        try:
+            df=yf.download(ticker, period=cfg["period"], interval=cfg["interval"], auto_adjust=True, progress=False, timeout=30)
+            df=clean_df(df)
+            if df is None or df.empty or len(df)<30:
+                time.sleep(2)
+                continue
+            return df
+        except Exception as e:
+            print(f"get_data cəhd {attempt+1} xətası: {e}")
+            time.sleep(3)
+    return None
 
 def add_features(df, ticker):
     df['MA20']=df['Close'].rolling(20).mean()
@@ -380,4 +386,27 @@ def run():
         send_telegram(txt)
 
 if __name__=="__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        import traceback
+        print(f"💥 Kritik xəta: {e}")
+        traceback.print_exc()
+        # Telegram-a xəta mesajı göndər, amma exit 1 etmə
+        try:
+            import os, requests
+            from datetime import datetime
+            import pytz
+            BAKU_TZ = pytz.timezone("Asia/Baku")
+            BOT_NAME = "Cavanshir83Bot"
+            TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8909079473:AAHX7XMiGwou8sbd5Rs1B-0CU0LBUgHc32w")
+            TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1434358288")
+            if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                msg = f"🤖 {BOT_NAME} XƏTA {datetime.now(BAKU_TZ).strftime('%H:%M')}\n⚠️ {str(e)[:500]}\n🔄 Növbəti saatda yenidən cəhd"
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}, timeout=10)
+        except:
+            pass
+    finally:
+        import sys
+        sys.exit(0)
+
