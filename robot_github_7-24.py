@@ -124,6 +124,41 @@ def get_finnhub_data(ticker):
     save_cache(cache)
     return sentiment_score, news_summary, analyst_score
 
+
+def get_current_price(ticker):
+    """Real-time qiyməti al - Finnhub + yfinance fast_info"""
+    real_price = None
+    # 1. Finnhub quote (ən real-time)
+    try:
+        if FINNHUB_API_KEY:
+            url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={FINNHUB_API_KEY}"
+            r = requests.get(url, timeout=10).json()
+            if r and 'c' in r and r['c'] > 0:
+                real_price = float(r['c'])
+                print(f"💰 Finnhub real price {ticker}: ${real_price}")
+                return real_price
+    except Exception as e:
+        print(f"Finnhub quote xətası: {e}")
+    
+    # 2. yfinance fast_info
+    try:
+        t = yf.Ticker(ticker)
+        if hasattr(t, 'fast_info') and t.fast_info and 'last_price' in t.fast_info:
+            real_price = float(t.fast_info['last_price'])
+            print(f"💰 yf fast_info price {ticker}: ${real_price}")
+            return real_price
+        # 3. history 1d 1m
+        hist = t.history(period="1d", interval="1m")
+        if not hist.empty:
+            real_price = float(hist['Close'].iloc[-1])
+            print(f"💰 yf 1m history price {ticker}: ${real_price}")
+            return real_price
+    except Exception as e:
+        print(f"yfinance real price xətası: {e}")
+    
+    return None
+
+
 def get_data(ticker, horizon_key):
     cfg=HORIZONS[horizon_key]
     for attempt in range(3):
@@ -368,8 +403,11 @@ def format_report(all_results, eval_msg):
     lines.append("─"*20)
     for ticker in sorted(set([r[0] for r in all_results])):
         ticker_results=[r for r in all_results if r[0]==ticker]
-        last_price=ticker_results[0][5].get('Close',0) if ticker_results and isinstance(ticker_results[0][5], dict) else 0
-        lines.append(f"📈 <b>{ticker} ${last_price:.2f}</b>")
+        # Real-time qiymət al
+        real_price = get_current_price(ticker)
+        if real_price is None:
+            real_price = ticker_results[0][5].get('Close',0) if ticker_results and isinstance(ticker_results[0][5], dict) else 0
+        lines.append(f"📈 <b>{ticker} ${real_price:.2f}</b> (real-time)")
         # Finnhub news
         try:
             _, news, _ = get_finnhub_data(ticker)
@@ -412,9 +450,11 @@ def run():
                     print(f"⚠️ {ticker} {hk} alınmadı")
                     continue
                 dec,conf,probs,last=res
-                log_prediction(ticker,hk,dec,conf,last.get('Close',0),probs)
+                real_p = get_current_price(ticker)
+                price_to_log = real_p if real_p else last.get('Close',0)
+                log_prediction(ticker,hk,dec,conf,price_to_log,probs)
                 all_results.append((ticker,hk,dec,conf,probs,last))
-                print(f"✅ {ticker} {hk}: {dec} {conf:.0f}% @ ${last.get('Close',0):.2f}")
+                print(f"✅ {ticker} {hk}: {dec} {conf:.0f}% @ ${price_to_log:.2f}")
             except Exception as e:
                 print(f"❌ {ticker} {hk}: {e}")
                 import traceback; traceback.print_exc()
