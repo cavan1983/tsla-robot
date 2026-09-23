@@ -1,15 +1,14 @@
 name: TSLA Robot 7/24
 on:
   schedule:
-    # İş günləri (Bazar ertəsi-Cümə) hər saat 09:00-21:00 Bakı vaxtı (05:00-17:00 UTC)
-    # Bu ABŞ bazarı saatlarını da əhatə edir (17:30-00:00 Bakı)
-    - cron: '0 5-17 * * 1-5'
+    - cron: '0 * * * *'  # Hər 60 dəqiqədən bir - 00:00, 01:00, 02:00...
   workflow_dispatch:
 jobs:
   run-robot:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,14 +31,17 @@ jobs:
           pip install --upgrade pip
           pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0
 
-      - name: Run Robot
+      - name: Run Robot - EXACT 60min
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           PYTHONWARNINGS: ignore
           TF_CPP_MIN_LOG_LEVEL: 3
-        run: python robot_github_7-24.py
+        run: |
+          echo "⏰ Start: $(date)"
+          python robot_github_7-24.py
+          echo "⏰ End: $(date)"
 
       - name: Save learning data to repo
         run: |
@@ -47,5 +49,5 @@ jobs:
           git config --global user.name "TSLA Bot"
           git config --global user.email "bot@github.com"
           git add data/ || true
-          git diff --staged --quiet || git commit -m "🧠 Auto-learn: $(date +'%Y-%m-%d %H:%M') - $(ls data/*.keras 2>/dev/null | wc -l) brains, $(wc -l < data/predictions.csv 2>/dev/null || echo 0) predictions"
+          git diff --staged --quiet || git commit -m "🧠 60min: $(date +'%Y-%m-%d %H:%M') - $(ls data/*.keras 2>/dev/null | wc -l) brains, $(wc -l < data/predictions.csv 2>/dev/null || echo 0) pred"
           git push || echo "No changes to push"
