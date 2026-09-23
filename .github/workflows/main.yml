@@ -1,7 +1,11 @@
-name: TSLA Robot 7/24
+name: TSLA Robot - SMART Market Hours
 on:
   schedule:
-    - cron: '0 * * * *'  # Hər 60 dəqiqədən bir - 00:00, 01:00, 02:00...
+    # ABŞ bazarı: 09:30-16:00 NY = 13:30-20:00 UTC = 17:30-00:00 Bakı
+    # Hər saat bazar açıq olanda - Bazar ertəsi-Cümə
+    - cron: '30 13-20 * * 1-5'  # 17:30, 18:30, 19:30, 20:30, 21:30, 22:30, 23:30, 00:30 Bakı
+    # Pre-market analiz - açılışdan 1 saat əvvəl
+    - cron: '30 12 * * 1-5'     # 16:30 Bakı - sabah üçün hazırlıq
   workflow_dispatch:
 jobs:
   run-robot:
@@ -31,7 +35,7 @@ jobs:
           pip install --upgrade pip
           pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0
 
-      - name: Run Robot - EXACT 60min
+      - name: Run Robot - SMART
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -39,15 +43,14 @@ jobs:
           PYTHONWARNINGS: ignore
           TF_CPP_MIN_LOG_LEVEL: 3
         run: |
-          echo "⏰ Start: $(date)"
+          echo "⏰ SMART Run: $(date) - Market hours only"
           python robot_github_7-24.py
-          echo "⏰ End: $(date)"
 
-      - name: Save learning data to repo
+      - name: Save learning data
         run: |
           mkdir -p data
           git config --global user.name "TSLA Bot"
           git config --global user.email "bot@github.com"
           git add data/ || true
-          git diff --staged --quiet || git commit -m "🧠 60min: $(date +'%Y-%m-%d %H:%M') - $(ls data/*.keras 2>/dev/null | wc -l) brains, $(wc -l < data/predictions.csv 2>/dev/null || echo 0) pred"
-          git push || echo "No changes to push"
+          git diff --staged --quiet || git commit -m "🧠 SMART: $(date +'%Y-%m-%d %H:%M') - $(ls data/*.keras 2>/dev/null | wc -l) brains"
+          git push || echo "No changes"
