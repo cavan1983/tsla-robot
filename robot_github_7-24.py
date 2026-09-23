@@ -432,11 +432,24 @@ def format_report(all_results, eval_msg):
     return "\n".join(lines)
 
 def run():
-    print(f"🚀 {BOT_NAME} - {TICKERS}")
-    msg,_,_=get_market_countdown()
+    print(f"🚀 {BOT_NAME} - {TICKERS} - SMART MODE")
+    msg, is_open, _ = get_market_countdown()
     print(msg)
     eval_msg=evaluate_past_predictions()
     print(eval_msg)
+
+    # SMART: Bazar bağlıdırsa mənasız proqnoz vermə
+    if not is_open:
+        print("😴 Bazar bağlıdır - beyinləri mənasız data ilə yormuruq")
+        # Yalnız həftə içi günlərdə bağlı saatlarda qısa məlumat göndər, həftəsonu heç nə göndərmə
+        now = datetime.now(BAKU_TZ)
+        if now.weekday() < 5:  # İş günüdür
+            # Əgər bazar açılışına 2 saatdan az qalıbsa, hazırlıq mesajı göndər
+            _, _, delta = get_market_countdown()
+            if delta.total_seconds() < 7200:  # 2 saat
+                txt = f"🤖 {BOT_NAME} {datetime.now(BAKU_TZ).strftime('%d.%m %H:%M')}\n{msg}\n{eval_msg}\n⏳ Açılışa hazırlaşıram..."
+                send_telegram(txt)
+        return
 
     all_results=[]
     for ticker in TICKERS:
