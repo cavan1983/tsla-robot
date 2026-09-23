@@ -1,7 +1,9 @@
 name: TSLA Robot 7/24
 on:
   schedule:
-    - cron: '0 * * * *'
+    # İş günləri (Bazar ertəsi-Cümə) hər saat 09:00-21:00 Bakı vaxtı (05:00-17:00 UTC)
+    # Bu ABŞ bazarı saatlarını da əhatə edir (17:30-00:00 Bakı)
+    - cron: '0 5-17 * * 1-5'
   workflow_dispatch:
 jobs:
   run-robot:
