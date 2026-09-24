@@ -25,7 +25,7 @@ BOT_NAME = "Cavanshir83Bot"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8909079473:AAHX7XMiGwou8sbd5Rs1B-0CU0LBUgHc32w")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1434358288")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "dajgcb1r01qhhp593b1gdajgcb1r01qhhp593b20")
-TICKERS = ["TSLA"]
+TICKERS = ["TSLA"]  # Sabah əlavə et: ["TSLA", "AAPL", "NVDA", "MSFT"] - avtomatik Transfer Learning edəcək!
 
 BAKU_TZ = pytz.timezone("Asia/Baku")
 DATA_PATH = "./data"
@@ -237,21 +237,39 @@ def train_model(ticker, horizon_key, X, y, df_info):
     df, features, scaler = df_info
     brain_file=f"{DATA_PATH}/brain_{ticker}_{horizon_key}.keras"
     h5_file=f"{DATA_PATH}/brain_{ticker}_{horizon_key}.h5"
-    # köhnə h5 varsa sil, keras istifadə et
     if os.path.exists(h5_file) and not os.path.exists(brain_file):
         try: os.remove(h5_file)
         except: pass
     model=None
+    # 1. Öz beyni varsa onu yüklə
     if os.path.exists(brain_file):
         try:
             model=load_model(brain_file)
+            print(f"🧠 Öz beyni yükləndi: {ticker} {horizon_key}")
         except:
             model=None
+    
+    # 2. Yoxdursa TRANSFER LEARNING - TSLA beynindən başla!
     if model is None:
+        tsla_brain = f"{DATA_PATH}/brain_TSLA_{horizon_key}.keras"
+        if ticker != "TSLA" and os.path.exists(tsla_brain):
+            try:
+                model=load_model(tsla_brain)
+                print(f"🔄 Transfer Learning: TSLA {horizon_key} beyni {ticker} üçün baza oldu!")
+            except:
+                model=None
+    
+    # 3. Heç biri yoxdursa sıfırdan yarat
+    if model is None:
+        print(f"📚 Sıfırdan beyin yaradılır: {ticker} {horizon_key}")
         model=Sequential([Input(shape=(X.shape[1], X.shape[2])), LSTM(64, return_sequences=True), Dropout(0.25), LSTM(32), Dropout(0.25), Dense(16, activation='relu'), Dense(3, activation='softmax')])
         model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    model.fit(X,y,epochs=8,batch_size=32,verbose=0)
+    
+    # Təlim
+    epochs = 12 if ticker != "TSLA" and "TSLA" in str(glob.glob(f"{DATA_PATH}/brain_TSLA_*.keras")) else 8
+    model.fit(X,y,epochs=epochs,batch_size=32,verbose=0)
     model.save(brain_file)
+    print(f"💾 Beyin yadda saxlandı: {brain_file} - {os.path.getsize(brain_file)//1024} KB")
     return model,scaler,features,df
 
 def predict_horizon(ticker, horizon_key):
