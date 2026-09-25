@@ -28,8 +28,32 @@ BOT_NAME = "Cavanshir83Bot"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
+# 1. TICKERS əlavə et
+TICKERS = ["TSLA", "KO", "AAPL", "NVDA", "MSFT"]
+BASE_TICKER = "TSLA"
 
-TICKERS = ["TSLA"]
+def build_model_transfer(base_model_path, input_shape):
+    if os.path.exists(base_model_path):
+        base = load_model(base_model_path)
+        new_model = build_model(input_shape)
+        try:
+            new_model.set_weights(base.get_weights())
+            print(f"🔄 Transfer: {base_model_path}")
+        except:
+            pass
+        new_model.compile(optimizer=Adam(0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+        return new_model
+    return build_model(input_shape)
+
+def train_for_ticker(ticker):
+    for hk, cfg in HORIZONS.items():
+        brain_path = f"data/brain_{ticker}_{hk}.keras"
+        base_brain_path = f"data/brain_{BASE_TICKER}_{hk}.keras"
+        
+        if ticker != BASE_TICKER and not os.path.exists(brain_path) and os.path.exists(base_brain_path):
+            print(f"🧠 {ticker} {hk} üçün {BASE_TICKER} transfer...")
+            model = build_model_transfer(base_brain_path, input_shape)
+        # ... rest train
 BAKU_TZ = pytz.timezone("Asia/Baku")
 NY_TZ = pytz.timezone("America/New_York")
 DATA_PATH = "./data"
