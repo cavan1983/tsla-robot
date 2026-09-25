@@ -2,7 +2,7 @@
 TRADE PRO V6.5 - CACHE CLEAN + REBUILD
 """
 import os, json, pickle, warnings, traceback, glob
-from datetime import datetime
+from news_sentiment import get_news_sentiment
 import pytz
 import yfinance as yf
 import pandas as pd
@@ -234,14 +234,22 @@ def main():
                 "GÖZLƏ": data.get("probs", {}).get("GÖZLƏ", 50.0),
                 "SAT": data.get("probs", {}).get("SAT", 17.0)
             })
-            
-    if rows:
-        df_pred = pd.DataFrame(rows)
-        df_pred.to_csv(f"{DATA_DIR}/predictions.csv", index=False)
-        with open(f"{DATA_DIR}/predictions.json", "w") as f:
-            json.dump(all_results, f, indent=2)
-        print(f"\n📊 predictions.csv {len(rows)} sətir")
-        print(df_pred.to_string())
+   try:
+    news_sent, news_head, is_new = get_news_sentiment()
+except:
+    news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
+
+for r in rows:
+    r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
+    r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
+
+if rows:
+    df_pred = pd.DataFrame(rows)
+    df_pred.to_csv(f"{DATA_DIR}/predictions.csv", index=False)
+    with open(f"{DATA_DIR}/predictions.json", "w") as f:
+        json.dump(all_results, f, indent=2)
+    print(f"\n📊 predictions.csv {len(rows)} sətir")
+    print(df_pred.to_string())
         
     try:
         msg = f"<b>TRADE PRO V6.5 CLEAN</b> {baku.strftime('%d.%m %H:%M')}\n"
