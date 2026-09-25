@@ -1,6 +1,6 @@
 """
-TRADE PRO V6.3 FIXED - prepare_xy bug fix
-TSLA 4 proqnoz, digərləri 1g, real AL/SAT
+TRADE PRO V6.4 FINAL - FIXED TSLA 50% bug
+TSLA 2y data, KO/AAPL/NVDA/MSFT 1y
 """
 import os, json, pickle, warnings, traceback
 from datetime import datetime
@@ -32,13 +32,13 @@ def get_horizons_for_ticker(ticker):
     if ticker == "TSLA":
         return {
             "1s": {"interval": "60m", "period": "7d", "label": "1 SAAT"},
-            "1g": {"interval": "1d", "period": "1y", "label": "1 GÜN"},
+            "1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"},
             "3g": {"interval": "1d", "period": "2y", "label": "3 GÜN"},
             "5g": {"interval": "1d", "period": "2y", "label": "5 GÜN"},
         }
     else:
         return {
-            "1g": {"interval": "1d", "period": "1y", "label": "1 GÜN"},
+            "1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"},
         }
 
 DATA_DIR = "data"
@@ -91,11 +91,11 @@ def fetch_data(ticker, period, interval):
 
 def build_model(input_shape):
     model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=input_shape),
+        LSTM(64, return_sequences=True, input_shape=input_shape),
         Dropout(0.2),
-        LSTM(50),
+        LSTM(32),
         Dropout(0.2),
-        Dense(25, activation='relu'),
+        Dense(16, activation='relu'),
         Dense(3, activation='softmax')
     ])
     model.compile(optimizer=Adam(0.001), loss='categorical_crossentropy', metrics=['accuracy'])
@@ -104,12 +104,10 @@ def build_model(input_shape):
 def prepare_xy(df, horizon_key):
     try:
         df = df.copy()
-        # Features
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA50'] = df['Close'].rolling(50).mean()
         df['RET'] = df['Close'].pct_change()
         
-        # Future label - FIXED: bütün dropna-dan əvvəl
         shift_n = 1
         if horizon_key == "3g": shift_n = 3
         elif horizon_key == "5g": shift_n = 5
@@ -118,17 +116,15 @@ def prepare_xy(df, horizon_key):
         df['CHANGE'] = (df['FUTURE'] - df['Close']) / df['Close'] * 100
         
         def label_change(ch):
-            if ch > 1.2: return 0  # AL
-            elif ch < -1.2: return 2  # SAT
-            else: return 1  # GÖZLƏ
+            if ch > 1.2: return 0
+            elif ch < -1.2: return 2
+            else: return 1
         
         df['LABEL'] = df['CHANGE'].apply(label_change)
-        
-        # BİRDƏFƏLİK dropna - FIXED BUG HERE
         df = df.dropna()
         
         if len(df) < 80:
-            print(f"  az data {len(df)}")
+            print(f"  az data {len(df)} for {horizon_key}")
             return None, None, None
             
         features = ['Close', 'Volume', 'MA20', 'MA50', 'RET']
@@ -141,7 +137,6 @@ def prepare_xy(df, horizon_key):
         
         seq_len = 20
         X, y = [], []
-        # FIXED: scaled və df eyni uzunluqdadır indi
         for i in range(seq_len, len(scaled)):
             X.append(scaled[i-seq_len:i])
             label = int(df['LABEL'].iloc[i])
@@ -152,7 +147,7 @@ def prepare_xy(df, horizon_key):
         if len(X) < 10:
             return None, None, None
             
-        print(f"  XY hazır: X={len(X)} seq_len={seq_len}")
+        print(f"  XY hazır: X={len(X)} for {horizon_key}")
         return np.array(X), np.array(y), scaler
         
     except Exception as e:
@@ -163,7 +158,7 @@ def prepare_xy(df, horizon_key):
 def train_for_ticker(ticker):
     results = {}
     horizons = get_horizons_for_ticker(ticker)
-    print(f"\n{'='*10} {ticker} {list(horizons.keys())} {'='*10}")
+    print(f"\n========== {ticker} {list(horizons.keys())} ==========")
     for hk, cfg in horizons.items():
         try:
             if hk == "1s" and not is_us_market_open():
@@ -214,17 +209,13 @@ def train_for_ticker(ticker):
                     
             try:
                 if TF_AVAILABLE:
-                    model.fit(X, y, epochs=5, batch_size=16, verbose=0)
+                    model.fit(X, y, epochs=6, batch_size=16, verbose=0)
                     model.save(brain_path)
                     with open(scaler_path, 'wb') as f:
                         pickle.dump(scaler, f)
                     print(f"✅ {ticker} {hk} öyrəndi və saved")
             except Exception as e:
                 print(f"⚠️ Train {ticker} {hk}: {e}")
-                try:
-                    model.save(brain_path)
-                except:
-                    pass
                     
             try:
                 last_seq = X[-1:]
@@ -253,7 +244,7 @@ def train_for_ticker(ticker):
 
 def main():
     baku, ny = get_times()
-    print(f"V6.3 FIXED - {baku} | TSLA 4 proqnoz, digərləri 1g")
+    print(f"V6.4 FINAL - {baku} | TSLA 4 proqnoz, digərləri 1g")
     all_results = {}
     for ticker in TICKERS:
         try:
@@ -288,7 +279,7 @@ def main():
         print(df_pred.to_string())
         
     try:
-        msg = f"<b>TRADE PRO V6.3 FIXED</b> {baku.strftime('%d.%m %H:%M')}\n"
+        msg = f"<b>TRADE PRO V6.4 FINAL</b> {baku.strftime('%d.%m %H:%M')}\n"
         msg += f"{'🟢 AÇIQ' if is_us_market_open() else '🔴 BAĞLI'} | {len(rows)} proqnoz\n\n"
         if "TSLA" in all_results:
             for hk in ["1s","1g","3g","5g"]:
@@ -302,7 +293,6 @@ def main():
                 d = all_results[t]["1g"]
                 emoji = "🟢" if d['signal']=="AL" else "🔴" if d['signal']=="SAT" else "🟡"
                 msg += f"{emoji} {t}: {d['signal']} {d['conf']:.0f}% @ ${d['price']:.2f}\n"
-        msg += f"\n⏰ Bakı {baku.strftime('%H:%M:%S')} | Fix işlədi!"
         send_telegram(msg)
     except Exception as e:
         print(f"Telegram: {e}")
