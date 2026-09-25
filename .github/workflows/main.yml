@@ -1,56 +1,68 @@
-name: TSLA Robot - SMART Market Hours
+name: TSLA Robot - SMART V3
+
 on:
   schedule:
-    # ABŞ bazarı: 09:30-16:00 NY = 13:30-20:00 UTC = 17:30-00:00 Bakı
-    # Hər saat bazar açıq olanda - Bazar ertəsi-Cümə
-    - cron: '30 13-20 * * 1-5'  # 17:30, 18:30, 19:30, 20:30, 21:30, 22:30, 23:30, 00:30 Bakı
-    # Pre-market analiz - açılışdan 1 saat əvvəl
-    - cron: '30 12 * * 1-5'     # 16:30 Bakı - sabah üçün hazırlıq
+    # NY vaxtı ilə yoxlama - Python içində dəqiq yoxlanacaq
+    # Bu cron 12:30 - 21:30 UTC arası hər saat = Bakı 16:30 - 01:30
+    # Həm yay (EDT) həm qış (EST) üçün uyğundur
+    - cron: '30 12-21 * * 1-5'
   workflow_dispatch:
+
 jobs:
   run-robot:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 10
+    timeout-minutes: 25
+    concurrency:
+      group: tsla-robot
+      cancel-in-progress: false
+
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Restore data cache
         uses: actions/cache@v4
         with:
           path: data
-          key: tsla-data-${{ github.run_id }}
+          key: tsla-data-v3
           restore-keys: |
+            tsla-data-v3
             tsla-data-
 
-      - name: Install
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0
 
-      - name: Run Robot - SMART
+      - name: Run Robot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           PYTHONWARNINGS: ignore
-          TF_CPP_MIN_LOG_LEVEL: 3
+          TF_CPP_MIN_LOG_LEVEL: '3'
         run: |
-          echo "⏰ SMART Run: $(date) - Market hours only"
+          echo "⏰ Run: $(date -u) UTC | $(TZ='Asia/Baku' date) Baku"
           python robot_github_7-24.py
 
       - name: Save learning data
+        if: always()
         run: |
           mkdir -p data
-          git config --global user.name "TSLA Bot"
-          git config --global user.email "bot@github.com"
+          git config user.name "TSLA Bot"
+          git config user.email "bot@github.com"
+          git pull --rebase || true
           git add data/ || true
-          git diff --staged --quiet || git commit -m "🧠 SMART: $(date +'%Y-%m-%d %H:%M') - $(ls data/*.keras 2>/dev/null | wc -l) brains"
-          git push || echo "No changes"
+          if ! git diff --staged --quiet; then
+            COUNT=$(ls data/*.keras data/*.pkl 2>/dev/null | wc -l)
+            git commit -m "🧠 V3: $(date +'%Y-%m-%d %H:%M %Z') - $COUNT brains"
+            git push
+          else
+            echo "No changes"
+          fi
