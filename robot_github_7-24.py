@@ -1,8 +1,7 @@
 """
-TRADE PRO V6.4 FINAL - FIXED TSLA 50% bug
-TSLA 2y data, KO/AAPL/NVDA/MSFT 1y
+TRADE PRO V6.5 - CACHE CLEAN + REBUILD
 """
-import os, json, pickle, warnings, traceback
+import os, json, pickle, warnings, traceback, glob
 from datetime import datetime
 import pytz
 import yfinance as yf
@@ -37,12 +36,19 @@ def get_horizons_for_ticker(ticker):
             "5g": {"interval": "1d", "period": "2y", "label": "5 GÜN"},
         }
     else:
-        return {
-            "1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"},
-        }
+        return {"1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"}}
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# 🧹 FIX: Köhnə xarab beyinləri sil - V6.2 den qalıb
+print("🧹 Köhnə beyinlər yoxlanır...")
+for f in glob.glob(f"{DATA_DIR}/brain_*.keras"):
+    try:
+        os.remove(f)
+        print(f"🗑️ Silindi köhnə: {f}")
+    except:
+        pass
 
 def get_times():
     baku = pytz.timezone("Asia/Baku")
@@ -52,19 +58,16 @@ def get_times():
 def is_us_market_open():
     try:
         _, now_ny = get_times()
-        if now_ny.weekday() >= 5:
-            return False
+        if now_ny.weekday() >= 5: return False
         open_t = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
         close_t = now_ny.replace(hour=16, minute=0, second=0, microsecond=0)
         return open_t <= now_ny <= close_t
-    except:
-        return True
+    except: return True
 
 def send_telegram(text):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        return
+    if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
@@ -77,8 +80,7 @@ def fetch_data(ticker, period, interval):
     for attempt in range(2):
         try:
             df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True, threads=False)
-            if df is None or df.empty:
-                continue
+            if df is None or df.empty: continue
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
@@ -107,34 +109,23 @@ def prepare_xy(df, horizon_key):
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA50'] = df['Close'].rolling(50).mean()
         df['RET'] = df['Close'].pct_change()
-        
         shift_n = 1
         if horizon_key == "3g": shift_n = 3
         elif horizon_key == "5g": shift_n = 5
-        
         df['FUTURE'] = df['Close'].shift(-shift_n)
         df['CHANGE'] = (df['FUTURE'] - df['Close']) / df['Close'] * 100
-        
         def label_change(ch):
             if ch > 1.2: return 0
             elif ch < -1.2: return 2
             else: return 1
-        
         df['LABEL'] = df['CHANGE'].apply(label_change)
         df = df.dropna()
-        
         if len(df) < 80:
             print(f"  az data {len(df)} for {horizon_key}")
             return None, None, None
-            
         features = ['Close', 'Volume', 'MA20', 'MA50', 'RET']
-        for f in features:
-            if f not in df.columns:
-                return None, None, None
-                
         scaler = MinMaxScaler()
         scaled = scaler.fit_transform(df[features])
-        
         seq_len = 20
         X, y = [], []
         for i in range(seq_len, len(scaled)):
@@ -143,13 +134,9 @@ def prepare_xy(df, horizon_key):
             one_hot = [0,0,0]
             one_hot[label] = 1
             y.append(one_hot)
-            
-        if len(X) < 10:
-            return None, None, None
-            
+        if len(X) < 10: return None, None, None
         print(f"  XY hazır: X={len(X)} for {horizon_key}")
         return np.array(X), np.array(y), scaler
-        
     except Exception as e:
         print(f"prepare_xy {horizon_key} xətası: {e}")
         traceback.print_exc()
@@ -162,60 +149,38 @@ def train_for_ticker(ticker):
     for hk, cfg in horizons.items():
         try:
             if hk == "1s" and not is_us_market_open():
-                print(f"{ticker} {hk} skip - bağlı")
-                continue
+                print(f"{ticker} {hk} skip - bağlı"); continue
             df = fetch_data(ticker, cfg["period"], cfg["interval"])
             if df is None:
                 print(f"❌ {ticker} {hk} data yox")
                 results[hk] = {"signal": "GÖZLƏ", "conf": 50.0, "price": 0.0, "open": 0.0, "probs": {"AL": 33.0, "GÖZLƏ": 50.0, "SAT": 17.0}}
                 continue
-                
             X, y, scaler = prepare_xy(df, hk)
             if X is None:
                 print(f"❌ {ticker} {hk} XY yox")
                 results[hk] = {"signal": "GÖZLƏ", "conf": 50.0, "price": float(df['Close'].iloc[-1]), "open": float(df['Open'].iloc[-1]), "probs": {"AL": 33.0, "GÖZLƏ": 50.0, "SAT": 17.0}}
                 continue
-                
             input_shape = (X.shape[1], X.shape[2])
             brain_path = f"{DATA_DIR}/brain_{ticker}_{hk}.keras"
             scaler_path = f"{DATA_DIR}/scaler_{ticker}_{hk}.pkl"
-            base_brain_path = f"{DATA_DIR}/brain_{BASE_TICKER}_{hk}.keras"
             
-            model = None
-            if ticker != BASE_TICKER and os.path.exists(base_brain_path):
-                try:
-                    base = load_model(base_brain_path)
-                    new_model = build_model(input_shape)
-                    try:
-                        if base.get_weights()[0].shape == new_model.get_weights()[0].shape:
-                            new_model.set_weights(base.get_weights())
-                            print(f"🔄 {ticker} {hk} transfer {BASE_TICKER}-dan")
-                    except:
-                        pass
-                    new_model.compile(optimizer=Adam(0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
-                    model = new_model
-                except Exception as e:
-                    print(f"Transfer alınmadı: {e}")
-                    
-            if model is None:
-                if os.path.exists(brain_path):
-                    try:
-                        model = load_model(brain_path)
-                        print(f"📂 {ticker} {hk} mövcud beyin")
-                    except:
-                        model = build_model(input_shape)
-                else:
-                    model = build_model(input_shape)
+            # HƏMİŞƏ TƏZƏ MODEL - köhnə yox
+            model = build_model(input_shape)
+            print(f"🆕 {ticker} {hk} təzə model quruldu {input_shape}")
                     
             try:
                 if TF_AVAILABLE:
-                    model.fit(X, y, epochs=6, batch_size=16, verbose=0)
+                    model.fit(X, y, epochs=8, batch_size=16, verbose=0)
                     model.save(brain_path)
                     with open(scaler_path, 'wb') as f:
                         pickle.dump(scaler, f)
                     print(f"✅ {ticker} {hk} öyrəndi və saved")
             except Exception as e:
                 print(f"⚠️ Train {ticker} {hk}: {e}")
+                traceback.print_exc()
+                # Train xətası olsa da save et
+                try: model.save(brain_path)
+                except: pass
                     
             try:
                 last_seq = X[-1:]
@@ -244,7 +209,7 @@ def train_for_ticker(ticker):
 
 def main():
     baku, ny = get_times()
-    print(f"V6.4 FINAL - {baku} | TSLA 4 proqnoz, digərləri 1g")
+    print(f"V6.5 CACHE CLEAN - {baku} | TSLA 4 proqnoz")
     all_results = {}
     for ticker in TICKERS:
         try:
@@ -279,7 +244,7 @@ def main():
         print(df_pred.to_string())
         
     try:
-        msg = f"<b>TRADE PRO V6.4 FINAL</b> {baku.strftime('%d.%m %H:%M')}\n"
+        msg = f"<b>TRADE PRO V6.5 CLEAN</b> {baku.strftime('%d.%m %H:%M')}\n"
         msg += f"{'🟢 AÇIQ' if is_us_market_open() else '🔴 BAĞLI'} | {len(rows)} proqnoz\n\n"
         if "TSLA" in all_results:
             for hk in ["1s","1g","3g","5g"]:
