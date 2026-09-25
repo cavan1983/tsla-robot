@@ -2,9 +2,6 @@ name: TSLA Robot - SMART V3
 
 on:
   schedule:
-    # NY vaxtı ilə yoxlama - Python içində dəqiq yoxlanacaq
-    # Bu cron 12:30 - 21:30 UTC arası hər saat = Bakı 16:30 - 01:30
-    # Həm yay (EDT) həm qış (EST) üçün uyğundur
     - cron: '30 12-21 * * 1-5'
   workflow_dispatch:
 
@@ -17,15 +14,11 @@ jobs:
     concurrency:
       group: tsla-robot
       cancel-in-progress: false
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
       - name: Restore data cache
         uses: actions/cache@v4
         with:
@@ -33,13 +26,10 @@ jobs:
           key: tsla-data-v3
           restore-keys: |
             tsla-data-v3
-            tsla-data-
-
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0
-
       - name: Run Robot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -48,9 +38,7 @@ jobs:
           PYTHONWARNINGS: ignore
           TF_CPP_MIN_LOG_LEVEL: '3'
         run: |
-          echo "⏰ Run: $(date -u) UTC | $(TZ='Asia/Baku' date) Baku"
           python robot_github_7-24.py
-
       - name: Save learning data
         if: always()
         run: |
@@ -60,9 +48,6 @@ jobs:
           git pull --rebase || true
           git add data/ || true
           if ! git diff --staged --quiet; then
-            COUNT=$(ls data/*.keras data/*.pkl 2>/dev/null | wc -l)
-            git commit -m "🧠 V3: $(date +'%Y-%m-%d %H:%M %Z') - $COUNT brains"
+            git commit -m "🧠 V3: $(date +'%Y-%m-%d %H:%M')"
             git push
-          else
-            echo "No changes"
           fi
