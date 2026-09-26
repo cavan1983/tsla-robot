@@ -59,34 +59,40 @@ def get_times():
 def get_indicators(ticker="TSLA"):
     try:
         df = yf.download(ticker, period="1y", progress=False, auto_adjust=True)
-        if df.empty:
-            return 363.21, 348.96, 396.34, 58.4, 12.4, "Yüksək"
+        if df is None or df.empty or len(df) < 30:
+            raise ValueError(f"{ticker} boş gəldi")
+
         close = df['Close']
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
         vol = df['Volume']
-        
+        if isinstance(vol, pd.DataFrame):
+            vol = vol.iloc[:, 0]
+
         ma20 = close.rolling(20).mean().iloc[-1]
         ma50 = close.rolling(50).mean().iloc[-1]
-        ma200 = close.rolling(200).mean().iloc[-1]
-        
-        # RSI 14
+        ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else close.mean()
+
         delta = close.diff()
-        gain = delta.where(delta>0,0).rolling(14).mean()
-        loss = -delta.where(delta<0,0).rolling(14).mean()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1+rs))
-        rsi_val = float(rsi.iloc[-1])
-        
-        # Volume Change %
+        rsi = 100 - (100 / (1 + rs))
+        rsi_val = rsi.iloc[-1]
+
         avg_vol = vol.rolling(20).mean().iloc[-1]
         last_vol = vol.iloc[-1]
         vol_change = ((last_vol - avg_vol) / avg_vol * 100) if avg_vol else 0
-        
-        vol_status = "Yüksək" if vol_change > 10 else "Orta"
-        
-        return round(float(ma20),2), round(float(ma50),2), round(float(ma200),2), round(rsi_val,1), round(float(vol_change),1), vol_status
+
+        vol_status = "Yüksək" if vol_change > 10 else "Orta" if vol_change > -10 else "Zəif"
+
+        print(f"REAL {ticker}: RSI={float(rsi_val):.1f} MA20={float(ma20):.2f}")
+        return round(float(ma20),2), round(float(ma50),2), round(float(ma200),2), round(float(rsi_val),1), round(float(vol_change),1), vol_status
+
     except Exception as e:
         print(f"Indicator error: {e}")
-        return 363.21, 348.96, 396.34, 58.4, 12.4, "Yüksək"
+        # SAĞLAM FALLBACK - saxta olmadığı bilinsin
+        return 0, 0, 0, 0, 0, "Xəta"
 
 def is_us_market_open():
     try:
