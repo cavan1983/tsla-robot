@@ -1,37 +1,61 @@
-name: TRADE PRO V7 KO SMART
+name: TSLA Robot - SMART V4 WORK HOURS
 
 on:
   schedule:
-    - cron: '0 * * * *'  # hər saat
+    - cron: '30 13 * * 1-5'
+    - cron: '0,30 14-19 * * 1-5'
+    - cron: '0 20 * * 1-5'
+    - cron: '15 20 * * 1-5'
   workflow_dispatch:
 
 jobs:
-  trade:
+  run-robot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 25
+    concurrency:
+      group: tsla-robot
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Cache data (beyinlər yalnız Actions yaddaşında)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Restore data cache
         uses: actions/cache@v4
         with:
           path: data
-          key: trade-data-v7-${{ github.run_id }}
+          key: tsla-data-v4
           restore-keys: |
-            trade-data-v7-
-      
-      - name: Python qur
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          
-      - name: Kitabxanalar
+            tsla-data-v4
+
+      - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          
-      - name: İşlə
+          pip install --upgrade pip
+          pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0 vaderSentiment
+
+      - name: Run Robot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          PYTHONWARNINGS: ignore
+          TF_CPP_MIN_LOG_LEVEL: '3'
         run: |
-          python robot_github_V7_KO.py
+          python robot_github_7-24.py
+
+      - name: Save learning data
+        if: always()
+        run: |
+          mkdir -p data
+          git config user.name "TSLA Bot"
+          git config user.email "bot@github.com"
+          git pull --rebase || true
+          git add data/ -f
+          git add news_cache.json -f || true
+          git commit -m "🧠 V4 WORK HOURS: $(date +'%Y-%m-%d %H:%M')" || true
+          git push || true
