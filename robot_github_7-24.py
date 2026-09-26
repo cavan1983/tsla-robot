@@ -2,6 +2,7 @@
 TRADE PRO V6.5 - CACHE CLEAN + REBUILD
 """
 import os, json, pickle, warnings, traceback, glob
+from datetime import datetime, timedelta
 from news_sentiment import get_news_sentiment
 import pytz
 import yfinance as yf
