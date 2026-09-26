@@ -56,23 +56,37 @@ def get_times():
     ny = pytz.timezone("America/New_York")
     return datetime.now(baku), datetime.now(ny)
 
-def get_ma_levels(ticker="TSLA"):
+def get_indicators(ticker="TSLA"):
     try:
-        import time
         df = yf.download(ticker, period="1y", progress=False, auto_adjust=True)
         if df.empty:
-            time.sleep(2)
-            df = yf.download(ticker, period="1y", progress=False, auto_adjust=True)
-        if df.empty:
-            return 363.21, 348.96, 396.34
+            return 363.21, 348.96, 396.34, 58.4, 12.4, "Yüksək"
         close = df['Close']
+        vol = df['Volume']
+        
         ma20 = close.rolling(20).mean().iloc[-1]
         ma50 = close.rolling(50).mean().iloc[-1]
         ma200 = close.rolling(200).mean().iloc[-1]
-        return round(float(ma20),2), round(float(ma50),2), round(float(ma200),2)
+        
+        # RSI 14
+        delta = close.diff()
+        gain = delta.where(delta>0,0).rolling(14).mean()
+        loss = -delta.where(delta<0,0).rolling(14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1+rs))
+        rsi_val = float(rsi.iloc[-1])
+        
+        # Volume Change %
+        avg_vol = vol.rolling(20).mean().iloc[-1]
+        last_vol = vol.iloc[-1]
+        vol_change = ((last_vol - avg_vol) / avg_vol * 100) if avg_vol else 0
+        
+        vol_status = "Yüksək" if vol_change > 10 else "Orta"
+        
+        return round(float(ma20),2), round(float(ma50),2), round(float(ma200),2), round(rsi_val,1), round(float(vol_change),1), vol_status
     except Exception as e:
-        print(f"MA error: {e}")
-        return 363.21, 348.96, 396.34
+        print(f"Indicator error: {e}")
+        return 363.21, 348.96, 396.34, 58.4, 12.4, "Yüksək"
 
 def is_us_market_open():
     try:
@@ -263,6 +277,7 @@ def main():
     ma20, ma50, ma200 = get_ma_levels("TSLA")
     print(f"MA20={ma20} MA50={ma50} MA200={ma200}")
 
+    ma20, ma50, ma200, rsi, vol_change, vol_status = get_indicators("TSLA")
     for r in rows:
         r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
         r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
@@ -270,7 +285,9 @@ def main():
             r["MA20"] = ma20
             r["MA50"] = ma50
             r["MA200"] = ma200
-
+            r["RSI"] = rsi
+            r["VolumeChange"] = vol_change
+            r["VolumeStatus"] = vol_status
     if rows:
         df_pred = pd.DataFrame(rows)
         df_pred.to_csv(f"{DATA_DIR}/predictions.csv", index=False)
