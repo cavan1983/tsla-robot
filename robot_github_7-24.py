@@ -1,8 +1,8 @@
 """
-TRADE PRO V6.7 - REAL LEARNING + WORK HOURS
+TRADE PRO V6.8 - REAL LEARNING + WORK HOURS + LIMIT SAVER NEWS
 """
 import os, json, pickle, warnings, traceback, glob
-from datetime import datetime
+from datetime import datetime, timedelta
 from news_sentiment import get_news_sentiment
 import pytz
 import yfinance as yf
@@ -31,7 +31,7 @@ TICKERS = ["TSLA", "KO", "AAPL", "NVDA", "MSFT"]
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# V6.7 - KÖHNƏ BEYİNLƏRİ SİLMİRİK - ƏSL ÖYRƏNMƏ
+# V6.8 - KÖHNƏ BEYİNLƏRİ SİLMİRİK - ƏSL ÖYRƏNMƏ
 print("🧠 Köhnə beyinlər saxlanır - üst-üstə öyrənəcək")
 
 def get_times():
@@ -77,7 +77,7 @@ def fetch_data(ticker, period, interval):
     return None
 
 def build_model(input_shape):
-    K.clear_session() # retracing warning-i azaldır
+    K.clear_session()
     print(f"[3] build {input_shape}")
     model = Sequential([
         LSTM(64, return_sequences=True, input_shape=input_shape),
@@ -170,8 +170,6 @@ def prepare_xy(df, horizon_key):
         return None, None, None, None
 
 def train_for_ticker(ticker):
-    from datetime import datetime
-    import pytz
     horizons = {}
     if ticker == "TSLA":
         horizons = {
@@ -204,7 +202,6 @@ def train_for_ticker(ticker):
             brain_path = f"{DATA_DIR}/brain_{ticker}_{hk}.keras"
             scaler_path = f"{DATA_DIR}/scaler_{ticker}_{hk}.pkl"
 
-            # ƏSL ÖYRƏNMƏ: varsa yüklə, yoxsa təzə qur
             model = None
             if os.path.exists(brain_path):
                 try:
@@ -248,16 +245,14 @@ def train_for_ticker(ticker):
 
 def main():
     baku, ny = get_times()
-    print(f"V6.7 REAL LEARNING - {baku} | NY {ny.strftime('%A %H:%M')} | Market: {is_us_market_open()}")
+    print(f"V6.8 LIMIT-SAVER - {baku} | NY {ny.strftime('%A %H:%M')} | Market: {is_us_market_open()}")
 
-    # İŞ GÜNÜ PRİNSİPİ - Həftəsonu tam çıx
     if ny.weekday() >= 5:
         print("🔴 HƏFTƏSONU - GitHub boş işləməsin deyə çıxıram")
-        # Əgər həftəsonu da daily istəyirsənsə bu return-u sil
         return
 
     all_results = {}
-    for ticker in ["TSLA", "KO", "AAPL", "NVDA", "MSFT"]:
+    for ticker in TICKERS:
         try:
             res = train_for_ticker(ticker)
             all_results[ticker] = res
@@ -288,16 +283,29 @@ def main():
                 "VolumeStatus": "Yüksək" if meta.get("vol_change",0) > 10 else "Orta" if meta.get("vol_change",0) > -10 else "Zəif"
             })
 
-    # NEWS FIX - həm arg ilə, həm argsız yoxla
+    # ========== NEWS FIX V6.8 - LIMIT QORUYUCU: YALNIZ YENI XEBER VARSA API ==========
+    news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
     try:
+        # news_sentiment.py özü cache yoxlayır, təzədirsə API-yə vurmur
         try:
             news_sent, news_head, is_new = get_news_sentiment("TSLA")
         except TypeError:
             news_sent, news_head, is_new = get_news_sentiment()
-        print(f"News: {news_sent} | {news_head}")
+        print(f"📰 News: {news_sent} | {news_head[:100]} | is_new={is_new}")
     except Exception as e:
-        print(f"News error: {e}")
-        news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
+        print(f"📰 News error (limit ola bilər): {e}")
+        # Fallback: cache-dən oxu, API-yə vurma
+        try:
+            if os.path.exists("news_cache.json"):
+                with open("news_cache.json","r") as f:
+                    cache=json.load(f)
+                    if "TSLA" in cache:
+                        news_sent=cache["TSLA"].get("sentiment",0)
+                        news_head=cache["TSLA"].get("headline","yeni xəbər yoxdur")
+                        print(f"📰 Cache-dən bərpa: {news_head[:80]}")
+        except:
+            pass
+    # ===============================================================================
 
     for r in rows:
         r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
@@ -309,11 +317,12 @@ def main():
         with open(f"{DATA_DIR}/predictions.json", "w") as f:
             json.dump(all_results, f, indent=2, default=str)
         print(f"\n📊 predictions.csv {len(rows)} sətir")
-        print(df_pred.to_string())
 
     try:
-        msg = f"<b>TRADE PRO V6.7 LEARNING</b> {baku.strftime('%d.%m %H:%M')}\n"
-        msg += f"{'🟢 AÇIQ' if is_us_market_open() else '🔴 BAĞLI'} | {len(rows)} proqnoz\n\n"
+        msg = f"<b>TRADE PRO V6.8 LIMIT-SAVER</b> {baku.strftime('%d.%m %H:%M')}\n"
+        msg += f"{'🟢 AÇIQ' if is_us_market_open() else '🔴 BAĞLI'} | {len(rows)} proqnoz\n"
+        if is_new:
+            msg += f"🆕 {news_head[:60]}\n\n"
         if "TSLA" in all_results:
             for hk in ["1s","1g","3g","5g"]:
                 if hk in all_results["TSLA"]:
