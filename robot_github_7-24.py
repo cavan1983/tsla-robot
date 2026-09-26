@@ -1,8 +1,8 @@
 """
-TRADE PRO V7.0 - KO ONLY + SMART LEARNING (EarlyStopping) + FIXED HORIZONS
-+ 2 İLLİK BAZA + LIMIT SAVER NEWS (bütün tickerlər üçün)
+TRADE PRO V6.8 - REAL LEARNING + WORK HOURS + LIMIT SAVER NEWS
++ 2 İLLİK BAZA 1 DƏFƏ YARANIR, SONRA ÜSTÜNƏ YAZILIR
 """
-import os, json, pickle, warnings, traceback
+import os, json, pickle, warnings, traceback, glob
 from datetime import datetime, timedelta
 from news_sentiment import get_news_sentiment
 import pytz
@@ -21,7 +21,6 @@ try:
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.utils import to_categorical
     from tensorflow.keras import backend as K
-    from tensorflow.keras.callbacks import EarlyStopping
     from sklearn.preprocessing import MinMaxScaler
     TF_AVAILABLE = True
     print("✅ TF + sklearn OK")
@@ -29,12 +28,11 @@ except Exception as e:
     TF_AVAILABLE = False
     print(f"⚠️ TF yoxdur: {e}")
 
-# YALNIZ KO
-TICKERS = ["KO"]
+TICKERS = ["TSLA", "KO", "AAPL", "NVDA", "MSFT"]
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-print("🧠 KO üçün ağıllı öyrənmə aktiv - EarlyStopping ilə")
+print("🧠 Köhnə beyinlər saxlanır - üst-üstə öyrənəcək")
 
 def get_times():
     baku = pytz.timezone("Asia/Baku")
@@ -62,8 +60,10 @@ def send_telegram(text):
     except Exception as e:
         print(f"Telegram xətası: {e}")
 
+# ======= BURA DƏYİŞDİ - 2 İLLİK BAZA MƏNTİQİ =======
 def fetch_data(ticker, period, interval):
     db_path = f"{DATA_DIR}/db_{ticker}_{interval}_{period}.csv"
+
     df_db = None
     if os.path.exists(db_path):
         try:
@@ -73,6 +73,7 @@ def fetch_data(ticker, period, interval):
         except:
             df_db = None
 
+    # Baza varsa yalnız son günləri çək, yoxdursa tam periodu
     if df_db is not None:
         fetch_period = "5d" if interval == "1d" else "7d"
     else:
@@ -100,6 +101,7 @@ def fetch_data(ticker, period, interval):
             return df_db
         return None
 
+    # Birləşdir və save et
     if df_db is not None:
         combined = pd.concat([df_db, df_new])
         combined = combined[~combined.index.duplicated(keep='last')]
@@ -111,6 +113,7 @@ def fetch_data(ticker, period, interval):
         df_new.to_csv(db_path)
         print(f" -> İlk baza yaradıldı {db_path} {len(df_new)} bar - OK")
         return df_new
+# ======= BURA QƏDƏR DƏYİŞDİ =======
 
 def build_model(input_shape):
     K.clear_session()
@@ -153,7 +156,6 @@ def prepare_xy(df, horizon_key):
         shift_n = 1
         if horizon_key == "3g": shift_n = 3
         elif horizon_key == "5g": shift_n = 5
-        # 1s üçün shift 1 saatdır, amma data 1h interval olduğuna görə 1 bar = 1 saat
 
         df['FUTURE'] = df['Close'].shift(-shift_n)
         df['CHANGE'] = (df['FUTURE'] - df['Close']) / df['Close'] * 100
@@ -181,36 +183,42 @@ def prepare_xy(df, horizon_key):
             return None, None, None, None
 
         X, y = [], []
-        for i in range(len(scaled) - seq_len):
-            X.append(scaled[i:i+seq_len])
-            y.append(df['LABEL'].iloc[i+seq_len])
-        
+        for i in range(seq_len, len(scaled)):
+            X.append(scaled[i-seq_len:i])
+            y.append(df['LABEL'].iloc[i])
+
         X = np.array(X)
         y = to_categorical(y, num_classes=3)
 
+        last_row = df.iloc[-1]
         meta = {
-            'price': float(df['Close'].iloc[-1]),
-            'open': float(df['Open'].iloc[-1]),
-            'ma20': float(df['MA20'].iloc[-1]),
-            'ma50': float(df['MA50'].iloc[-1]),
-            'ma200': float(df['MA200'].iloc[-1]),
-            'rsi': float(df['RSI'].iloc[-1]),
-            'vol_change': float(df['VOL_CH'].iloc[-1])
+            'ma20': float(last_row['MA20']),
+            'ma50': float(last_row['MA50']),
+            'ma200': float(last_row['MA200']),
+            'rsi': float(last_row['RSI']),
+            'vol_change': float(last_row['VOL_CH']),
+            'price': float(last_row['Close']),
+            'open': float(df['Open'].iloc[-1] if 'Open' in df else last_row['Close'])
         }
+        print(f" -> OK X={X.shape} MA20={meta['ma20']:.2f} RSI={meta['rsi']:.1f}")
         return X, y, scaler, meta
+
     except Exception as e:
-        print(f"prepare error {e}")
+        print(f" -> FAIL {e}")
         traceback.print_exc()
         return None, None, None, None
 
 def train_for_ticker(ticker):
-    # DÜZƏLDİLDİ - BÜTÜN HORIZONLAR
-    horizons = {
-        "1s": {"interval": "1h", "period": "3mo", "label": "1 SAAT"},
-        "1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"},
-        "3g": {"interval": "1d", "period": "2y", "label": "3 GÜN"},
-        "5g": {"interval": "1d", "period": "2y", "label": "5 GÜN"}
-    }
+    horizons = {}
+    if ticker == "TSLA":
+        horizons = {
+            "1s": {"interval": "60m", "period": "7d", "label": "1 SAAT"},
+            "1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"},
+            "3g": {"interval": "1d", "period": "2y", "label": "3 GÜN"},
+            "5g": {"interval": "1d", "period": "2y", "label": "5 GÜN"},
+        }
+    else:
+        horizons = {"1g": {"interval": "1d", "period": "2y", "label": "1 GÜN"}}
 
     results = {}
     print(f"\n========== {ticker} ==========")
@@ -218,11 +226,8 @@ def train_for_ticker(ticker):
         try:
             print(f"\n--- {ticker} {hk} START ---")
             if hk == "1s" and not is_us_market_open():
-                print(f"skip 1s - bazar bağlı, amma KO üçün model yenilənəcək")
-                # 1s üçün bazar bağlıdırsa belə fetch etmirik, amma davam edirik
-                # istəsən tam skip edə bilərsən
-                # continue
-
+                print(f"skip - bazar bağlı")
+                continue
             df = fetch_data(ticker, cfg["period"], cfg["interval"])
             if df is None:
                 results[hk] = {"signal": "GÖZLƏ", "conf": 50.0, "price": 0.0, "open": 0.0, "probs": {"AL": 33.0, "GÖZLƏ": 50.0, "SAT": 17.0}}
@@ -249,11 +254,9 @@ def train_for_ticker(ticker):
                 model = build_model(input_shape)
                 print(f"🆕 İlk dəfə model quruldu")
 
-            print(f"[4] train {ticker} {hk} - AĞILLI ÖYRƏNMƏ...")
+            print(f"[4] train {ticker} {hk}...")
             if TF_AVAILABLE:
-                # AĞILLI ÖYRƏNMƏ - EarlyStopping
-                early_stop = EarlyStopping(monitor='loss', patience=5, restore_best_weights=True, verbose=1)
-                model.fit(X, y, epochs=30, batch_size=16, verbose=0, callbacks=[early_stop])
+                model.fit(X, y, epochs=8, batch_size=16, verbose=0)
                 model.save(brain_path)
                 with open(scaler_path, 'wb') as f:
                     pickle.dump(scaler, f)
@@ -281,7 +284,7 @@ def train_for_ticker(ticker):
 
 def main():
     baku, ny = get_times()
-    print(f"V7.0 KO ONLY + SMART - {baku} | NY {ny.strftime('%A %H:%M')} | Market: {is_us_market_open()}")
+    print(f"V6.8 LIMIT-SAVER - {baku} | NY {ny.strftime('%A %H:%M')} | Market: {is_us_market_open()}")
 
     if ny.weekday() >= 5:
         print("🔴 HƏFTƏSONU - GitHub boş işləməsin deyə çıxıram")
@@ -319,26 +322,28 @@ def main():
                 "VolumeStatus": "Yüksək" if meta.get("vol_change",0) > 10 else "Orta" if meta.get("vol_change",0) > -10 else "Zəif"
             })
 
-    # DÜZƏLDİLDİ - NEWS BÜTÜN TICKERLƏR ÜÇÜN (İNDİ TƏK KO)
-    news_data = {}
-    for ticker in TICKERS:
+    news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
+    try:
         try:
-            sent, head, is_new = get_news_sentiment(ticker)
-            news_data[ticker] = (sent, head, is_new)
-            print(f"📰 News {ticker}: {sent} | {head[:100]} | is_new={is_new}")
-        except Exception as e:
-            print(f"📰 News error {ticker}: {e}")
-            news_data[ticker] = (0, "yeni xəbər yoxdur", False)
+            news_sent, news_head, is_new = get_news_sentiment("TSLA")
+        except TypeError:
+            news_sent, news_head, is_new = get_news_sentiment()
+        print(f"📰 News: {news_sent} | {news_head[:100]} | is_new={is_new}")
+    except Exception as e:
+        print(f"📰 News error: {e}")
+        try:
+            if os.path.exists("news_cache.json"):
+                with open("news_cache.json","r") as f:
+                    cache=json.load(f)
+                    if "TSLA" in cache:
+                        news_sent=cache["TSLA"].get("sentiment",0)
+                        news_head=cache["TSLA"].get("headline","yeni xəbər yoxdur")
+        except:
+            pass
 
     for r in rows:
-        t = r.get("ticker")
-        if t in news_data:
-            r["news_sentiment"] = news_data[t][0]
-            r["news_headline"] = news_data[t][1]
-            r["is_new"] = news_data[t][2]
-        else:
-            r["news_sentiment"] = 0
-            r["news_headline"] = "yeni xəbər yoxdur"
+        r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
+        r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
 
     if rows:
         df_pred = pd.DataFrame(rows)
@@ -348,18 +353,16 @@ def main():
         print(f"\n📊 predictions.csv {len(rows)} sətir")
 
     try:
-        msg = f"<b>TRADE PRO V7.0 KO SMART</b> {baku.strftime('%d.%m %H:%M')}\n"
+        msg = f"<b>TRADE PRO V6.8 LIMIT-SAVER</b> {baku.strftime('%d.%m %H:%M')}\n"
         msg += f"{'🟢 AÇIQ' if is_us_market_open() else '🔴 BAĞLI'} | {len(rows)} proqnoz\n"
-        for ticker in TICKERS:
-            if ticker in news_data and news_data[ticker][2]:
-                msg += f"🆕 {ticker}: {news_data[ticker][1][:60]}\n"
-        msg += "\n"
-        if "KO" in all_results:
+        if is_new:
+            msg += f"🆕 {news_head[:60]}\n\n"
+        if "TSLA" in all_results:
             for hk in ["1s","1g","3g","5g"]:
-                if hk in all_results["KO"]:
-                    d = all_results["KO"][hk]
+                if hk in all_results["TSLA"]:
+                    d = all_results["TSLA"][hk]
                     emoji = "🟢" if d['signal']=="AL" else "🔴" if d['signal']=="SAT" else "🟡"
-                    msg += f"{emoji} KO {hk}: <b>{d['signal']}</b> {d['conf']:.0f}% @ ${d['price']:.2f}\n"
+                    msg += f"{emoji} TSLA {hk}: <b>{d['signal']}</b> {d['conf']:.0f}% @ ${d['price']:.2f}\n"
         send_telegram(msg)
     except Exception as e:
         print(f"Telegram: {e}")
