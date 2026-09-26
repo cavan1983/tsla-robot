@@ -55,7 +55,7 @@ jobs:
           git config user.name "TSLA Bot"
           git config user.email "bot@github.com"
           git pull --rebase || true
-          git add data/ || true
-          git add news_cache.json || true
+          git add data/ -f
+          git add news_cache.json -f || true
           git commit -m "🧠 V4 WORK HOURS: $(date +'%Y-%m-%d %H:%M')" || true
           git push || true
