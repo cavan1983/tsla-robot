@@ -1,8 +1,16 @@
-name: TSLA Robot - SMART V3
+name: TSLA Robot - SMART V4 WORK HOURS
 
 on:
   schedule:
-    - cron: '30 12-21 * * 1-5'
+    # 1. Market açıq olanda - 1s üçün hər 30 dəq
+    # 09:30 NY = 13:30 UTC
+    - cron: '30 13 * * 1-5'
+    # 10:00 - 15:30 NY = 14:00 - 19:30 UTC
+    - cron: '0,30 14-19 * * 1-5'
+    # 16:00 Close = 20:00 UTC
+    - cron: '0 20 * * 1-5'
+    # 2. Daily yekun - market bağlanandan 15 dəq sonra, 1g/3g/5g üçün
+    - cron: '15 20 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -24,9 +32,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data
-          key: tsla-data-v3
+          key: tsla-data-v4
           restore-keys: |
-            tsla-data-v3
+            tsla-data-v4
             
       - name: Install dependencies
         run: |
@@ -53,5 +61,5 @@ jobs:
           git pull --rebase || true
           git add data/ || true
           git add news_cache.json || true
-          git commit -m "🧠 V3: $(date +'%Y-%m-%d %H:%M')" || true
+          git commit -m "🧠 V4 WORK HOURS: $(date +'%Y-%m-%d %H:%M')" || true
           git push || true
