@@ -2,14 +2,9 @@ name: TSLA Robot - SMART V4 WORK HOURS
 
 on:
   schedule:
-    # 1. Market açıq olanda - 1s üçün hər 30 dəq
-    # 09:30 NY = 13:30 UTC
     - cron: '30 13 * * 1-5'
-    # 10:00 - 15:30 NY = 14:00 - 19:30 UTC
     - cron: '0,30 14-19 * * 1-5'
-    # 16:00 Close = 20:00 UTC
     - cron: '0 20 * * 1-5'
-    # 2. Daily yekun - market bağlanandan 15 dəq sonra, 1g/3g/5g üçün
     - cron: '15 20 * * 1-5'
   workflow_dispatch:
 
@@ -24,10 +19,11 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Restore data cache
         uses: actions/cache@v4
         with:
@@ -35,12 +31,12 @@ jobs:
           key: tsla-data-v4
           restore-keys: |
             tsla-data-v4
-            
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install yfinance requests pytz pandas numpy scikit-learn tensorflow==2.15.0 vaderSentiment
-          
+
       - name: Run Robot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -51,7 +47,7 @@ jobs:
           TF_CPP_MIN_LOG_LEVEL: '3'
         run: |
           python robot_github_7-24.py
-          
+
       - name: Save learning data
         if: always()
         run: |
@@ -63,10 +59,3 @@ jobs:
           git add news_cache.json || true
           git commit -m "🧠 V4 WORK HOURS: $(date +'%Y-%m-%d %H:%M')" || true
           git push || true
-                - name: Save DB to GitHub
-        run: |
-          git config user.name "bot"
-          git config user.email "bot@bot.com"
-          git add data/
-          git commit -m "live db update" || echo "no changes"
-          git push
