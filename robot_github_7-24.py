@@ -56,6 +56,19 @@ def get_times():
     ny = pytz.timezone("America/New_York")
     return datetime.now(baku), datetime.now(ny)
 
+def get_ma_levels(ticker="TSLA"):
+    try:
+        df = yf.Ticker(ticker).history(period="1y")
+        if df.empty:
+            return None, None, None
+        close = df['Close']
+        ma20 = close.rolling(20).mean().iloc[-1]
+        ma50 = close.rolling(50).mean().iloc[-1]
+        ma200 = close.rolling(200).mean().iloc[-1]
+        return round(float(ma20),2), round(float(ma50),2), round(float(ma200),2)
+    except:
+        return None, None, None
+
 def is_us_market_open():
     try:
         _, now_ny = get_times()
@@ -237,13 +250,20 @@ def main():
             })
     try:
         news_sent, news_head, is_new = get_news_sentiment()
-    except Exception as e:
-        print(f"News error: {e}")
-        news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
+   except Exception as e:
+    print(f"News error: {e}")
+    news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
 
-    for r in rows:
-        r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
-        r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
+ma20, ma50, ma200 = get_ma_levels("TSLA")
+print(f"MA20={ma20} MA50={ma50} MA200={ma200}")
+
+for r in rows:
+    r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
+    r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
+    if r.get("ticker") == "TSLA":
+        r["MA20"] = ma20
+        r["MA50"] = ma50
+        r["MA200"] = ma200
 
     if rows:
         df_pred = pd.DataFrame(rows)
