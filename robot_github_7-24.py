@@ -1,5 +1,6 @@
 """
 TRADE PRO V6.8 - REAL LEARNING + WORK HOURS + LIMIT SAVER NEWS
++ 2 İLLİK BAZA 1 DƏFƏ YARANIR, SONRA ÜSTÜNƏ YAZILIR
 """
 import os, json, pickle, warnings, traceback, glob
 from datetime import datetime, timedelta
@@ -31,7 +32,6 @@ TICKERS = ["TSLA", "KO", "AAPL", "NVDA", "MSFT"]
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# V6.8 - KÖHNƏ BEYİNLƏRİ SİLMİRİK - ƏSL ÖYRƏNMƏ
 print("🧠 Köhnə beyinlər saxlanır - üst-üstə öyrənəcək")
 
 def get_times():
@@ -60,21 +60,60 @@ def send_telegram(text):
     except Exception as e:
         print(f"Telegram xətası: {e}")
 
+# ======= BURA DƏYİŞDİ - 2 İLLİK BAZA MƏNTİQİ =======
 def fetch_data(ticker, period, interval):
-    print(f"[1] fetch {ticker} {interval} {period}")
+    db_path = f"{DATA_DIR}/db_{ticker}_{interval}_{period}.csv"
+
+    df_db = None
+    if os.path.exists(db_path):
+        try:
+            df_db = pd.read_csv(db_path, parse_dates=True, index_col=0)
+            if df_db.empty:
+                df_db = None
+        except:
+            df_db = None
+
+    # Baza varsa yalnız son günləri çək, yoxdursa tam periodu
+    if df_db is not None:
+        fetch_period = "5d" if interval == "1d" else "7d"
+    else:
+        fetch_period = period
+
+    print(f"[1] fetch {ticker} {interval} {period} -> download {fetch_period} | db_exists={df_db is not None}")
+
+    df_new = None
     for attempt in range(2):
         try:
-            df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True, threads=False)
+            df = yf.download(ticker, period=fetch_period, interval=interval, progress=False, auto_adjust=True, threads=False)
             if df is None or df.empty: continue
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
-            if len(df) > 30:
-                print(f" -> OK {len(df)} bar")
-                return df
+            if len(df) > 5:
+                df_new = df
+                break
         except Exception as e:
             print(f" -> FAIL {e}")
-    return None
+
+    if df_new is None:
+        if df_db is not None:
+            print(f" -> fetch alınmadı, köhnə baza qaytarılır {len(df_db)} bar")
+            return df_db
+        return None
+
+    # Birləşdir və save et
+    if df_db is not None:
+        combined = pd.concat([df_db, df_new])
+        combined = combined[~combined.index.duplicated(keep='last')]
+        combined = combined.sort_index()
+        combined.to_csv(db_path)
+        print(f" -> DB yeniləndi {db_path}: {len(df_db)} -> {len(combined)} bar")
+        return combined
+    else:
+        df_new.to_csv(db_path)
+        print(f" -> İlk baza yaradıldı {db_path} {len(df_new)} bar - OK")
+        return df_new
+# ======= BURA QƏDƏR DƏYİŞDİ =======
 
 def build_model(input_shape):
     K.clear_session()
@@ -283,18 +322,15 @@ def main():
                 "VolumeStatus": "Yüksək" if meta.get("vol_change",0) > 10 else "Orta" if meta.get("vol_change",0) > -10 else "Zəif"
             })
 
-    # ========== NEWS FIX V6.8 - LIMIT QORUYUCU: YALNIZ YENI XEBER VARSA API ==========
     news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
     try:
-        # news_sentiment.py özü cache yoxlayır, təzədirsə API-yə vurmur
         try:
             news_sent, news_head, is_new = get_news_sentiment("TSLA")
         except TypeError:
             news_sent, news_head, is_new = get_news_sentiment()
         print(f"📰 News: {news_sent} | {news_head[:100]} | is_new={is_new}")
     except Exception as e:
-        print(f"📰 News error (limit ola bilər): {e}")
-        # Fallback: cache-dən oxu, API-yə vurma
+        print(f"📰 News error: {e}")
         try:
             if os.path.exists("news_cache.json"):
                 with open("news_cache.json","r") as f:
@@ -302,10 +338,8 @@ def main():
                     if "TSLA" in cache:
                         news_sent=cache["TSLA"].get("sentiment",0)
                         news_head=cache["TSLA"].get("headline","yeni xəbər yoxdur")
-                        print(f"📰 Cache-dən bərpa: {news_head[:80]}")
         except:
             pass
-    # ===============================================================================
 
     for r in rows:
         r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
