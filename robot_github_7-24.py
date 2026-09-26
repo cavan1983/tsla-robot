@@ -145,40 +145,64 @@ def build_model(input_shape):
 def prepare_xy(df, horizon_key):
     try:
         df = df.copy()
+
+        # Texniki indikatorlar - sənin app-də göstərdiyin eyni
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA50'] = df['Close'].rolling(50).mean()
+        df['MA200'] = df['Close'].rolling(200).mean()
         df['RET'] = df['Close'].pct_change()
+        df['VOL20'] = df['Volume'].rolling(20).mean()
+        df['VOL_CH'] = (df['Volume'] - df['VOL20']) / df['VOL20'] * 100
+
+        # RSI 14
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(14).mean()
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+
+        # Gələcək
         shift_n = 1
         if horizon_key == "3g": shift_n = 3
         elif horizon_key == "5g": shift_n = 5
+
         df['FUTURE'] = df['Close'].shift(-shift_n)
         df['CHANGE'] = (df['FUTURE'] - df['Close']) / df['Close'] * 100
+
         def label_change(ch):
-            if ch > 1.2: return 0
-            elif ch < -1.2: return 2
-            else: return 1
+            if ch > 1.2: return 0 # AL
+            elif ch < -1.2: return 2 # SAT
+            else: return 1 # GÖZLƏ
+
         df['LABEL'] = df['CHANGE'].apply(label_change)
         df = df.dropna()
+
         if len(df) < 80:
-            print(f"  az data {len(df)} for {horizon_key}")
+            print(f" az data {len(df)} for {horizon_key}")
             return None, None, None
-        features = ['Close', 'Volume', 'MA20', 'MA50', 'RET']
-        scaler = MinMaxScaler()
-        scaled = scaler.fit_transform(df[features])
-        seq_len = 20
-        X, y = [], []
-        for i in range(seq_len, len(scaled)):
-            X.append(scaled[i-seq_len:i])
-            label = int(df['LABEL'].iloc[i])
-            one_hot = [0,0,0]
-            one_hot[label] = 1
-            y.append(one_hot)
-        if len(X) < 10: return None, None, None
-        print(f"  XY hazır: X={len(X)} for {horizon_key}")
-        return np.array(X), np.array(y), scaler
+
+        # Modelə gedəcək feature-lar - bunlar vacibdir
+        features = ['MA20', 'MA50', 'MA200', 'RET', 'RSI', 'VOL_CH']
+        # NaN-ları doldur
+        df[features] = df[features].fillna(method='bfill').fillna(0)
+
+        X = df[features].values
+        y = df['LABEL'].values
+
+        # Son qiymətləri də qaytar ki, predictions.csv-yə yazasan
+        last_row = df.iloc[-1]
+        meta = {
+            'ma20': float(last_row['MA20']),
+            'ma50': float(last_row['MA50']),
+            'ma200': float(last_row['MA200']),
+            'rsi': float(last_row['RSI']),
+            'vol_change': float(last_row['VOL_CH'])
+        }
+
+        return X, y, meta
+
     except Exception as e:
-        print(f"prepare_xy {horizon_key} xətası: {e}")
-        traceback.print_exc()
+        print(f"prepare_xy xətası {horizon_key}: {e}")
         return None, None, None
 
 def train_for_ticker(ticker):
