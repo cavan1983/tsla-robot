@@ -249,21 +249,22 @@ def main():
                 "SAT": data.get("probs", {}).get("SAT", 17.0)
             })
     try:
-        news_sent, news_head, is_new = get_news_sentiment()
-   except Exception as e:
-    print(f"News error: {e}")
-    news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
+        news_sent, news_head, is_new = get_news_sentiment("TSLA")
+        print(f"News: {news_sent} | {news_head}")
+    except Exception as e:
+        print(f"News error: {e}")
+        news_sent, news_head, is_new = 0, "yeni xəbər yoxdur", False
 
-ma20, ma50, ma200 = get_ma_levels("TSLA")
-print(f"MA20={ma20} MA50={ma50} MA200={ma200}")
+    ma20, ma50, ma200 = get_ma_levels("TSLA")
+    print(f"MA20={ma20} MA50={ma50} MA200={ma200}")
 
-for r in rows:
-    r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
-    r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
-    if r.get("ticker") == "TSLA":
-        r["MA20"] = ma20
-        r["MA50"] = ma50
-        r["MA200"] = ma200
+    for r in rows:
+        r["news_sentiment"] = news_sent if r.get("ticker") == "TSLA" else 0
+        r["news_headline"] = news_head if r.get("ticker") == "TSLA" else "yeni xəbər yoxdur"
+        if r.get("ticker") == "TSLA":
+            r["MA20"] = ma20
+            r["MA50"] = ma50
+            r["MA200"] = ma200
 
     if rows:
         df_pred = pd.DataFrame(rows)
