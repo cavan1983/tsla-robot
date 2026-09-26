@@ -63,3 +63,10 @@ jobs:
           git add news_cache.json || true
           git commit -m "🧠 V4 WORK HOURS: $(date +'%Y-%m-%d %H:%M')" || true
           git push || true
+                - name: Save DB to GitHub
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git add data/
+          git commit -m "live db update" || echo "no changes"
+          git push
